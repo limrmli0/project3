@@ -11,10 +11,20 @@ from torch.utils.data import DataLoader
 import torchvision.transforms as T
 from torch.utils.tensorboard import SummaryWriter
 
+import torch.nn.functional as F
+from torch.optim.lr_scheduler import CosineAnnealingLR
+
 from datasets import Proj3_Dataset
 from models import *
 
 np.random.seed(250528)
+
+def loss_with_smoothing(pred, target, smoothing=0.1):
+    confidence = 1.0 - smoothing
+    log_prob = F.log_softmax(pred, dim=-1)
+    nll_loss = -log_prob.gather(dim=-1, index=target.unsqueeze(1)).squeeze(1)
+    smooth_loss = -log_prob.mean(dim=-1)
+    return (confidence * nll_loss + smoothing * smooth_loss).mean()
 
 def get_args_parser():
     # Usage example: python train.py --lr 1e-3 --optim_type adam --arch_ver ver1 --freeze --ver_name "v1"
@@ -79,7 +89,8 @@ def run_trainval():
     print(f"[val-{ep + 1}/{num_epochs}] loss: {val_loss:.6f} | acc: {val_acc:.3f}%")
     writer.add_scalar('ep_loss/val', val_loss, ep+1)
     writer.add_scalar('ep_acc/val', val_acc, ep+1)
-
+    scheduler.step()
+    
     for ep in range(num_epochs):
         net.train()
         ep_loss = 0
@@ -127,7 +138,7 @@ if __name__ == '__main__':
     lr = float(args.lr)
     weight_decay = 1e-4
     num_workers = 2
-    batch_size = 8
+    batch_size = 32 # 8
     freeze_backbone = args.freeze
     num_cls = 50 # number of classes in the dataset, so do not change this value
     optim_type = args.optim_type
@@ -178,9 +189,10 @@ if __name__ == '__main__':
     # train & validation
     img_mean = torch.tensor([0.485, 0.456, 0.406]).reshape(1, 3, 1, 1).to(device)
     img_std = torch.tensor([0.229, 0.224, 0.225]).reshape(1, 3, 1, 1).to(device)
-    criterion = nn.CrossEntropyLoss() # loss function - you can define others
+    criterion = lambda pred, target: loss_with_smoothing(pred, target, smoothing=0.1)
     train_parameters = filter(lambda p: p.requires_grad, net.parameters())
     optim = optim_choices[optim_type](train_parameters, lr=lr, weight_decay=weight_decay)
+    scheduler = CosineAnnealingLR(optim, T_max=num_epochs)
 
     run_trainval()
 
