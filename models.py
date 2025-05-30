@@ -25,6 +25,7 @@ class R34_ver1(nn.Module):
             nn.Linear(512, 512),
             nn.BatchNorm1d(512),
             nn.ReLU(inplace=True),
+            # nn.Dropout(0.2),
             nn.Linear(512, num_cls),
         )
 
